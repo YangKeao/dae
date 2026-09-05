@@ -135,6 +135,7 @@ func (c *ControlPlane) publishRuntimeStats() {
 		return
 	}
 	publishRuntimeStatsStore(c.runtimeStats)
+	publishPrometheusControlPlane(c)
 }
 
 func (c *ControlPlane) unpublishRuntimeStats() {
@@ -142,6 +143,7 @@ func (c *ControlPlane) unpublishRuntimeStats() {
 		return
 	}
 	unpublishRuntimeStatsStore(c.runtimeStats)
+	unpublishPrometheusControlPlane(c)
 }
 
 func (s *runtimeStats) record(upload uint64, download uint64) {

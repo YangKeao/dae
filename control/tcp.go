@@ -52,6 +52,11 @@ func buildTCPLinkLogFields(res *proxyDialResult, dialParam *proxyDialParam, dst 
 		"pname":    ProcessName2String(dialParam.ProcessName[:]),
 		"mac":      Mac2String(dialParam.Mac[:]),
 	}
+	if res.AdaptiveMode != "" && res.AdaptiveMode != "off" {
+		fields["adaptive_mode"] = res.AdaptiveMode
+		fields["adaptive_recommended"] = res.AdaptiveRecommended
+		fields["adaptive_applied"] = res.AdaptiveApplied
+	}
 	if !annotateOffload {
 		return fields
 	}
@@ -263,7 +268,17 @@ func (c *ControlPlane) handleConn(ctx context.Context, lConn net.Conn) (err erro
 		return nil
 	}
 
-	if err = RelayTCPContextWithRecords(ctx, lRelayConn, rConn, c.runtimeDownloadRecorder(), c.runtimeUploadRecorder()); err != nil {
+	downloadRecorder := c.runtimeDownloadRecorder()
+	var passiveSuccessOnce sync.Once
+	recordDownload := func(n int64) {
+		downloadRecorder(n)
+		if n > 0 {
+			passiveSuccessOnce.Do(func() {
+				c.adaptive.recordPassiveSuccess(res)
+			})
+		}
+	}
+	if err = RelayTCPContextWithRecords(ctx, lRelayConn, rConn, recordDownload, c.runtimeUploadRecorder()); err != nil {
 		if daerrors.IsIgnorableTCPRelayError(err) {
 			return nil // ignore normal connection closure errors
 		}

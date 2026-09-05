@@ -51,6 +51,7 @@ type ControlPlane struct {
 	log *logrus.Logger
 
 	runtimeStats *runtimeStats
+	adaptive     *adaptiveRouter
 
 	core       *controlPlaneCore
 	deferFuncs []func() error
@@ -98,6 +99,7 @@ type ControlPlane struct {
 	tproxyPortProtect              bool
 	soMarkFromDae                  uint32
 	mptcp                          bool
+	metricsTargetLabels            bool
 	udpRouteScopeSensitive         bool
 	udpUnorderedRunner             *udpUnorderedTaskRunner
 	failedQuicDcidCache            *failedQuicDcidCache
@@ -265,6 +267,7 @@ func NewControlPlane(
 	dnsCache map[string]*DnsCache,
 	tagToNodeList map[string][]string,
 	groups []config.Group,
+	adaptive []config.AdaptiveGroup,
 	routingA *config.Routing,
 	global *config.Global,
 	dnsConfig *config.Dns,
@@ -277,6 +280,7 @@ func NewControlPlane(
 		dnsCache,
 		tagToNodeList,
 		groups,
+		adaptive,
 		routingA,
 		global,
 		dnsConfig,
@@ -292,6 +296,7 @@ func NewControlPlaneWithContext(
 	dnsCache map[string]*DnsCache,
 	tagToNodeList map[string][]string,
 	groups []config.Group,
+	adaptive []config.AdaptiveGroup,
 	routingA *config.Routing,
 	global *config.Global,
 	dnsConfig *config.Dns,
@@ -304,6 +309,7 @@ func NewControlPlaneWithContext(
 		dnsCache,
 		tagToNodeList,
 		groups,
+		adaptive,
 		routingA,
 		global,
 		dnsConfig,
@@ -321,6 +327,7 @@ func NewPreparedControlPlaneWithContext(
 	dnsCache map[string]*DnsCache,
 	tagToNodeList map[string][]string,
 	groups []config.Group,
+	adaptive []config.AdaptiveGroup,
 	routingA *config.Routing,
 	global *config.Global,
 	dnsConfig *config.Dns,
@@ -333,6 +340,7 @@ func NewPreparedControlPlaneWithContext(
 		dnsCache,
 		tagToNodeList,
 		groups,
+		adaptive,
 		routingA,
 		global,
 		dnsConfig,
@@ -351,6 +359,7 @@ func newControlPlaneWithContextOptions(
 	dnsCache map[string]*DnsCache,
 	tagToNodeList map[string][]string,
 	groups []config.Group,
+	adaptive []config.AdaptiveGroup,
 	routingA *config.Routing,
 	global *config.Global,
 	dnsConfig *config.Dns,
@@ -735,10 +744,12 @@ func newControlPlaneWithContextOptions(
 		tproxyPortProtect:           global.TproxyPortProtect,
 		soMarkFromDae:               global.SoMarkFromDae,
 		mptcp:                       global.Mptcp,
+		metricsTargetLabels:         global.MetricsTargetLabels,
 		udpRouteScopeSensitive:      builder.UsesPacketMetadataRouting(),
 		udpUnorderedRunner:          newDefaultUdpUnorderedTaskRunner(cctx),
 		failedQuicDcidCache:         newFailedQuicDcidCache(failedQuicDcidCacheMaxEntries),
 	}
+	plane.adaptive = newAdaptiveRouter(cctx, log, outbounds, adaptive, global.SoMarkFromDae, global.Mptcp)
 	SetFailedQuicDcidCache(plane.failedQuicDcidCache)
 	SetAnyfromSoMark(global.SoMarkFromDae)
 	plane.runtimeStats.startRoller(cctx)
@@ -3642,6 +3653,7 @@ func (c *ControlPlane) releaseRetainedState() {
 	c.lanInterface = nil
 	c.udpUnorderedRunner = nil
 	c.failedQuicDcidCache = nil
+	c.adaptive = nil
 	c.listenerPublishMu.Lock()
 	c.listenerFiles = nil
 	c.listenerPublishMu.Unlock()

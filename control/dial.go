@@ -19,16 +19,17 @@ import (
 )
 
 type proxyDialParam struct {
-	Outbound    consts.OutboundIndex
-	Domain      string
-	Mac         [6]uint8
-	Dscp        uint8
-	ProcessName [16]uint8
-	Src         netip.AddrPort
-	Dest        netip.AddrPort
-	Mark        uint32
-	Network     string         // e.g. "tcp", "udp"
-	Excluded    *dialer.Dialer // Dialer to exclude in selection
+	Outbound         consts.OutboundIndex
+	Domain           string
+	Mac              [6]uint8
+	Dscp             uint8
+	ProcessName      [16]uint8
+	Src              netip.AddrPort
+	Dest             netip.AddrPort
+	Mark             uint32
+	Network          string         // e.g. "tcp", "udp"
+	Excluded         *dialer.Dialer // Dialer to exclude in selection
+	adaptiveObserved bool
 }
 
 type proxyDialResult struct {
@@ -44,6 +45,10 @@ type proxyDialResult struct {
 	OrigNetworkTypeObj      *dialer.NetworkType
 	SelectionNetworkTypeObj *dialer.NetworkType
 	AdmissionNetworkTypeObj *dialer.NetworkType
+	TargetPort              uint16
+	AdaptiveMode            string
+	AdaptiveRecommended     string
+	AdaptiveApplied         bool
 }
 
 func shouldForceMarkUnavailableOnProxyDialError(err error) bool {
@@ -172,7 +177,20 @@ func (c *ControlPlane) chooseProxyDialer(ctx context.Context, p *proxyDialParam)
 	}
 
 	strictIpVersion := dialIp
-	d, _, admissionNetworkType, err := outbound.SelectWithExclusionResult(selectionNetworkType, strictIpVersion, p.Excluded)
+	observeAdaptive := !p.adaptiveObserved
+	p.adaptiveObserved = true
+	adaptiveDecision := c.adaptive.recommend(outbound, domain, dst.Port(), selectionNetworkType, p.Excluded, observeAdaptive)
+	var (
+		d                    *dialer.Dialer
+		admissionNetworkType *dialer.NetworkType
+		err                  error
+	)
+	if adaptiveDecision.apply && adaptiveDecision.recommended != nil {
+		d = adaptiveDecision.recommended
+		admissionNetworkType = selectionNetworkType
+	} else {
+		d, _, admissionNetworkType, err = outbound.SelectWithExclusionResult(selectionNetworkType, strictIpVersion, p.Excluded)
+	}
 	if err != nil && err == ob.ErrNoAliveDialer {
 		// Fallback for UDP/TCP: if selection failed (probably due to health check fail),
 		// try the other IP version if strictIpVersion is not absolutely required by domain routing.
@@ -192,6 +210,10 @@ func (c *ControlPlane) chooseProxyDialer(ctx context.Context, p *proxyDialParam)
 				OrigNetworkTypeObj:      networkType,
 				SelectionNetworkTypeObj: selectionNetworkType,
 				AdmissionNetworkTypeObj: admissionNetworkType,
+				TargetPort:              dst.Port(),
+				AdaptiveMode:            adaptiveDecision.mode,
+				AdaptiveRecommended:     dialerName(adaptiveDecision.recommended),
+				AdaptiveApplied:         adaptiveDecision.apply,
 			}, fmt.Errorf("select dialer from group %v (orig:%v sel:%v src:%v): %w",
 				outbound.Name,
 				networkType.StringWithoutDns(),
@@ -221,6 +243,10 @@ func (c *ControlPlane) chooseProxyDialer(ctx context.Context, p *proxyDialParam)
 		OrigNetworkTypeObj:      networkType,
 		SelectionNetworkTypeObj: selectionNetworkType,
 		AdmissionNetworkTypeObj: admissionNetworkType,
+		TargetPort:              dst.Port(),
+		AdaptiveMode:            adaptiveDecision.mode,
+		AdaptiveRecommended:     dialerName(adaptiveDecision.recommended),
+		AdaptiveApplied:         adaptiveDecision.apply,
 	}, nil
 }
 
@@ -240,6 +266,7 @@ func (c *ControlPlane) routeDial(ctx context.Context, p *proxyDialParam) (netpro
 		dialCtx, cancel := context.WithTimeout(ctx, consts.DefaultDialTimeout)
 		conn, err := res.Dialer.DialContext(dialCtx, res.Network, res.DialTarget)
 		cancel()
+		c.adaptive.recordConnection(res, err)
 		if err == nil {
 			return conn, res, nil
 		}

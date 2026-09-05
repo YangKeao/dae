@@ -338,6 +338,13 @@ func (r *Runner) Run() (err error) {
 		pprofServer = &http.Server{Addr: pprofAddr, Handler: nil}
 		go func() { _ = pprofServer.ListenAndServe() }()
 	}
+	metricsListen := conf.Global.MetricsListen
+	metricsServer, err := startMetricsServer(log, metricsListen)
+	if err != nil {
+		cancel()
+		_ = c.Close()
+		return fmt.Errorf("start Prometheus metrics server on %q: %w", metricsListen, err)
+	}
 
 	// Serve tproxy TCP/UDP server util signals.
 	var listener *control.Listener
@@ -652,6 +659,7 @@ func (r *Runner) Run() (err error) {
 			}
 
 			reloadManager.refreshPprofServer(log, &pprofServer, newConf.Global.PprofPort)
+			refreshMetricsServer(log, &metricsServer, &metricsListen, newConf.Global.MetricsListen)
 
 			notifyRunStateChange(runStateChanges)
 
@@ -784,6 +792,7 @@ loop:
 						c = handoff.oldControlPlane
 						currCancel = handoff.oldCancel
 						conf = handoff.oldConf
+						refreshMetricsServer(log, &metricsServer, &metricsListen, conf.Global.MetricsListen)
 						listener = handoff.oldListener
 						if restartErr := c.RestartDNSListener(); restartErr != nil {
 							log.WithError(restartErr).Warnln("[Reload] Failed to restart previous DNS listener after staged handoff rollback")
@@ -843,6 +852,12 @@ loop:
 			log.Infoln("Shutting down pprof server")
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			_ = pprofServer.Shutdown(ctx)
+			cancel()
+		}
+		if metricsServer != nil {
+			log.Infoln("Shutting down Prometheus metrics server")
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			_ = metricsServer.Shutdown(ctx)
 			cancel()
 		}
 		_ = os.Remove(PidFilePath)
@@ -1329,6 +1344,7 @@ func newControlPlaneWithMode(ctx context.Context, log *logrus.Logger, bpf any, d
 			dnsCache,
 			tagToNodeList,
 			conf.Group,
+			conf.Adaptive,
 			&conf.Routing,
 			&conf.Global,
 			&conf.Dns,
@@ -1342,6 +1358,7 @@ func newControlPlaneWithMode(ctx context.Context, log *logrus.Logger, bpf any, d
 			dnsCache,
 			tagToNodeList,
 			conf.Group,
+			conf.Adaptive,
 			&conf.Routing,
 			&conf.Global,
 			&conf.Dns,

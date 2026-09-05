@@ -12,6 +12,7 @@ var SectionSummaryDesc = Desc{
 	"node":         "Nodes defined here will be merged as a part of the global node pool.",
 	"dns":          "See more at https://github.com/daeuniverse/dae/blob/main/docs/en/configuration/dns.md.",
 	"group":        "Node group. Groups defined here can be used as outbounds in section \"routing\".",
+	"adaptive":     "Asynchronous destination-aware dialer selection. Every entry references one existing group and can only select nodes from that group.",
 	"routing": `Traffic follows this routing. See https://github.com/daeuniverse/dae/blob/main/docs/en/configuration/routing.md for full examples.
 Notice: domain traffic split will fail if DNS traffic is not taken over by dae.
 Built-in outbound: direct, must_direct, block.
@@ -29,9 +30,10 @@ mac: Match source MAC address. It works on LAN mode.`,
 }
 
 var SectionDescription = map[string]Desc{
-	"GlobalDesc": GlobalDesc,
-	"DnsDesc":    DnsDesc,
-	"GroupDesc":  GroupDesc,
+	"GlobalDesc":   GlobalDesc,
+	"DnsDesc":      DnsDesc,
+	"GroupDesc":    GroupDesc,
+	"AdaptiveDesc": AdaptiveDesc,
 }
 
 var GlobalDesc = Desc{
@@ -61,6 +63,8 @@ var GlobalDesc = Desc{
 	"mptcp":                        "Enable Multipath TCP.  If is true, dae will try to use MPTCP to connect all nodes, but it will only take effects when the node supports MPTCP. It can use for load balance and failover to multiple interfaces and IPs.",
 	"bootstrap_resolver":           "Explicit DNS resolver used only for bootstrap lookups that must happen before dae DNS routing is available, such as resolving named DNS upstream hosts and dial_mode real-domain probes. When unset, dae falls back to 119.29.29.29:53 and 223.5.5.5:53 in order. Setting bootstrap_resolver disables those defaults and uses only the configured resolver.",
 	"bpf_conn_state_map_size":      "Maximum entries for the shared TCP/UDP eBPF connection-state map. Lower values reduce locked kernel memory but also lower the maximum tracked concurrent flows. This takes effect on fresh eBPF load or restart; same-port reload keeps the live map to preserve connections.",
+	"metrics_listen":               "Optional Prometheus metrics listen address, for example 127.0.0.1:2024. Empty disables the endpoint.",
+	"metrics_target_labels":        "Expose exact adaptive target domain and port labels. Disabled by default for privacy.",
 }
 
 var DnsDesc = Desc{
@@ -97,4 +101,20 @@ min_moving_avg: Select node by the moving average of latencies of checks, which 
 	"udp_check_dns":         "Override global config.",
 	"check_interval":        "Override global config.",
 	"check_tolerance":       "Override global config.",
+}
+
+var AdaptiveDesc = Desc{
+	"mode":                  "Adaptive mode: off, shadow, or enforce. Shadow computes recommendations without changing routing.",
+	"max_targets":           "Maximum tracked destination targets for this group.",
+	"min_connections":       "Connections within the observation window required before background probes start.",
+	"observation_window":    "Frequency observation window for hot targets.",
+	"idle_ttl":              "Remove targets that have not been observed for this duration.",
+	"probe_interval":        "Minimum interval between probes of the same target and dialer.",
+	"probe_timeout":         "Timeout for one background TCP or TLS probe.",
+	"probe_ports":           "Destination ports eligible for background probes. Defaults to 443; separate multiple values with commas.",
+	"max_concurrent_probes": "Maximum concurrent background probes for this group.",
+	"max_probes_per_minute": "Token-bucket rate limit for background probes in this group.",
+	"recommendation_ttl":    "Maximum age of a target-specific recommendation.",
+	"switch_tolerance":      "Minimum absolute latency improvement before changing a healthy recommendation.",
+	"switch_min_percent":    "Minimum relative latency improvement percentage before changing a healthy recommendation.",
 }

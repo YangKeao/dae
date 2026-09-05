@@ -25,6 +25,7 @@ var configSectionSpecs = []configSectionSpec{
 	{name: "subscription", decode: decodeSubscriptionSection},
 	{name: "node", decode: decodeNodeSection},
 	{name: "group", decode: decodeGroupSection},
+	{name: "adaptive", decode: decodeAdaptiveSection},
 	{name: "routing", required: true, decode: decodeRoutingSection},
 	{name: "dns", decode: decodeDnsSection},
 }
@@ -70,6 +71,10 @@ func decodeNodeSection(conf *Config, section *config_parser.Section) error {
 
 func decodeGroupSection(conf *Config, section *config_parser.Section) error {
 	return SectionParser(reflect.ValueOf(&conf.Group), section)
+}
+
+func decodeAdaptiveSection(conf *Config, section *config_parser.Section) error {
+	return SectionParser(reflect.ValueOf(&conf.Adaptive), section)
 }
 
 func decodeRoutingSection(conf *Config, section *config_parser.Section) error {

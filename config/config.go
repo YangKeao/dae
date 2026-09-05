@@ -54,6 +54,8 @@ type Global struct {
 	BandwidthMaxRx         string        `mapstructure:"bandwidth_max_rx" default:"0"`
 	UDPHopInterval         time.Duration `mapstructure:"udphop_interval" default:"30s"`
 	BpfConnStateMapSize    uint32        `mapstructure:"bpf_conn_state_map_size" default:"262144"`
+	MetricsListen          string        `mapstructure:"metrics_listen"`
+	MetricsTargetLabels    bool          `mapstructure:"metrics_target_labels" default:"false"`
 }
 
 type Utls struct {
@@ -134,6 +136,26 @@ type Group struct {
 	CheckTolerance     time.Duration `mapstructure:"check_tolerance"`
 }
 
+// AdaptiveGroup configures asynchronous destination-aware selection for one
+// existing outbound group. It never changes the group chosen by routing.
+type AdaptiveGroup struct {
+	Name string `mapstructure:"_"`
+
+	Mode                string        `mapstructure:"mode" default:"off"`
+	MaxTargets          int           `mapstructure:"max_targets" default:"64"`
+	MinConnections      uint64        `mapstructure:"min_connections" default:"20"`
+	ObservationWindow   time.Duration `mapstructure:"observation_window" default:"10m"`
+	IdleTtl             time.Duration `mapstructure:"idle_ttl" default:"1h"`
+	ProbeInterval       time.Duration `mapstructure:"probe_interval" default:"5m"`
+	ProbeTimeout        time.Duration `mapstructure:"probe_timeout" default:"5s"`
+	ProbePorts          []uint16      `mapstructure:"probe_ports"`
+	MaxConcurrentProbes int           `mapstructure:"max_concurrent_probes" default:"4"`
+	MaxProbesPerMinute  int           `mapstructure:"max_probes_per_minute" default:"60"`
+	RecommendationTtl   time.Duration `mapstructure:"recommendation_ttl" default:"15m"`
+	SwitchTolerance     time.Duration `mapstructure:"switch_tolerance" default:"50ms"`
+	SwitchMinPercent    uint          `mapstructure:"switch_min_percent" default:"20"`
+}
+
 type DnsRequestRouting struct {
 	Rules    []*config_parser.RoutingRule `mapstructure:"_"`
 	Fallback FunctionOrString             `mapstructure:"fallback" required:""`
@@ -172,6 +194,7 @@ type Config struct {
 	Subscription []KeyableString `mapstructure:"subscription"`
 	Node         []KeyableString `mapstructure:"node"`
 	Group        []Group         `mapstructure:"group" desc:"GroupDesc"`
+	Adaptive     []AdaptiveGroup `mapstructure:"adaptive" desc:"AdaptiveDesc"`
 	Routing      Routing         `mapstructure:"routing" required:""`
 	Dns          Dns             `mapstructure:"dns" desc:"DnsDesc"`
 }
