@@ -17,6 +17,7 @@ import (
 	ob "github.com/daeuniverse/dae/component/outbound"
 	"github.com/daeuniverse/dae/component/outbound/dialer"
 	"github.com/daeuniverse/outbound/netproxy"
+	"github.com/sirupsen/logrus"
 )
 
 type proxyDialParam struct {
@@ -279,16 +280,53 @@ func (c *ControlPlane) routeDial(ctx context.Context, p *proxyDialParam) (netpro
 	for attempt := range 2 {
 		res, err := c.chooseProxyDialer(ctx, p)
 		if err != nil {
+			if c.log != nil {
+				c.log.WithError(err).WithFields(logrus.Fields{
+					"attempt":       attempt + 1,
+					"requested_out": p.Outbound.String(),
+					"network":       p.Network,
+					"src":           p.Src.String(),
+					"dst":           p.Dest.String(),
+					"sniffed":       p.Domain,
+					"excluded":      dialerName(p.Excluded),
+				}).Warn("diagnostic: outbound dialer selection failed")
+			}
 			return nil, res, err
 		}
 		lastRes = res
 
+		startedAt := time.Now()
 		dialCtx, cancel := context.WithTimeout(ctx, proxyDialTimeout(res))
 		conn, err := res.Dialer.DialContext(dialCtx, res.Network, res.DialTarget)
 		cancel()
+		elapsed := time.Since(startedAt)
+		var entry *logrus.Entry
+		if c.log != nil {
+			entry = c.log.WithFields(logrus.Fields{
+				"attempt":              attempt + 1,
+				"group":                res.Outbound.Name,
+				"dialer":               dialerName(res.Dialer),
+				"proxy_backed":         isProxyBackedDialer(res.Dialer),
+				"dial_target":          res.DialTarget,
+				"network":              res.Network,
+				"mark":                 fmt.Sprintf("0x%x", res.Mark),
+				"elapsed":              elapsed.String(),
+				"sniffed":              res.SniffedDomain,
+				"adaptive_mode":        res.AdaptiveMode,
+				"adaptive_recommended": res.AdaptiveRecommended,
+				"adaptive_applied":     res.AdaptiveApplied,
+				"excluded":             dialerName(p.Excluded),
+			})
+		}
 		c.adaptive.recordConnection(res, err)
 		if err == nil {
+			if entry != nil {
+				entry.Debug("diagnostic: outbound dial succeeded")
+			}
 			return conn, res, nil
+		}
+		if entry != nil {
+			entry.WithError(err).Warn("diagnostic: outbound dial failed")
 		}
 		lastErr = err
 		forceUnavailable := shouldForceMarkUnavailableOnProxyDialError(err)
