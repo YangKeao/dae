@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"time"
 
 	"github.com/daeuniverse/dae/common"
 	"github.com/daeuniverse/dae/common/consts"
@@ -51,6 +52,8 @@ type proxyDialResult struct {
 	AdaptiveApplied         bool
 }
 
+const adaptiveRecommendedDialTimeout = 3 * time.Second
+
 func shouldForceMarkUnavailableOnProxyDialError(err error) bool {
 	if err == nil {
 		return false
@@ -70,6 +73,23 @@ func notifyProxyDialerHealthCheck(d *dialer.Dialer, l4proto consts.L4ProtoStr, e
 		return
 	}
 	d.NotifyCheckTcp()
+}
+
+func shouldRetryAdaptiveProxyDial(ctx context.Context, res *proxyDialResult, err error) bool {
+	if err == nil || res == nil || res.Dialer == nil || !res.AdaptiveApplied {
+		return false
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return false
+	}
+	return isProxyBackedDialer(res.Dialer)
+}
+
+func proxyDialTimeout(res *proxyDialResult) time.Duration {
+	if res != nil && res.AdaptiveApplied {
+		return adaptiveRecommendedDialTimeout
+	}
+	return consts.DefaultDialTimeout
 }
 
 func alternateNetworkType(networkType *dialer.NetworkType) *dialer.NetworkType {
@@ -263,7 +283,7 @@ func (c *ControlPlane) routeDial(ctx context.Context, p *proxyDialParam) (netpro
 		}
 		lastRes = res
 
-		dialCtx, cancel := context.WithTimeout(ctx, consts.DefaultDialTimeout)
+		dialCtx, cancel := context.WithTimeout(ctx, proxyDialTimeout(res))
 		conn, err := res.Dialer.DialContext(dialCtx, res.Network, res.DialTarget)
 		cancel()
 		c.adaptive.recordConnection(res, err)
@@ -271,7 +291,9 @@ func (c *ControlPlane) routeDial(ctx context.Context, p *proxyDialParam) (netpro
 			return conn, res, nil
 		}
 		lastErr = err
-		if attempt > 0 || !shouldForceMarkUnavailableOnProxyDialError(err) {
+		forceUnavailable := shouldForceMarkUnavailableOnProxyDialError(err)
+		retryAdaptive := shouldRetryAdaptiveProxyDial(ctx, res, err)
+		if attempt > 0 || (!forceUnavailable && !retryAdaptive) {
 			l4proto := consts.L4ProtoStr(p.Network)
 			if res.SelectionNetworkTypeObj != nil {
 				l4proto = res.SelectionNetworkTypeObj.L4Proto
@@ -279,11 +301,23 @@ func (c *ControlPlane) routeDial(ctx context.Context, p *proxyDialParam) (netpro
 			notifyProxyDialerHealthCheck(res.Dialer, l4proto, err)
 			return nil, res, err
 		}
-		if res.SelectionNetworkTypeObj != nil {
+		// A target-specific recommendation is advisory state layered on top of
+		// the group's configured selector. If that recommended proxy fails, retry
+		// once through the same group while excluding it. This keeps failures
+		// from pinning new connections to a stale recommendation, without ever
+		// widening selection to another group.
+		p.Excluded = res.Dialer
+		if forceUnavailable && res.SelectionNetworkTypeObj != nil {
 			res.Dialer.ReportUnavailableForced(
 				res.SelectionNetworkTypeObj,
 				fmt.Errorf("proxy dial failed: %w", err),
 			)
+		} else if retryAdaptive {
+			l4proto := consts.L4ProtoStr(p.Network)
+			if res.SelectionNetworkTypeObj != nil {
+				l4proto = res.SelectionNetworkTypeObj.L4Proto
+			}
+			notifyProxyDialerHealthCheck(res.Dialer, l4proto, err)
 		}
 	}
 	return nil, lastRes, lastErr
