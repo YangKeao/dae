@@ -108,6 +108,27 @@ func newTestGroupForSelection(policy DialerSelectionPolicy) (*DialerGroup, []*di
 	return group, dialers
 }
 
+func TestSnapshotDeterministicSelection(t *testing.T) {
+	fixed, fixedDialers := newTestGroupForSelection(DialerSelectionPolicy{
+		Policy:     consts.DialerSelectionPolicy_Fixed,
+		FixedIndex: 1,
+	})
+	selected, ok := fixed.SnapshotDeterministicSelection(TestNetworkType)
+	if !ok || selected != fixedDialers[1] {
+		t.Fatalf("fixed snapshot = (%p, %v), want (%p, true)", selected, ok, fixedDialers[1])
+	}
+
+	random, _ := newTestGroupForSelection(DialerSelectionPolicy{Policy: consts.DialerSelectionPolicy_Random})
+	if selected, ok := random.SnapshotDeterministicSelection(TestNetworkType); ok || selected != nil {
+		t.Fatalf("random snapshot = (%p, %v), want (nil, false)", selected, ok)
+	}
+
+	minimum, _ := newTestGroupForSelection(DialerSelectionPolicy{Policy: consts.DialerSelectionPolicy_MinMovingAverageLatencies})
+	if selected, ok := minimum.SnapshotDeterministicSelection(TestNetworkType); !ok || selected == nil {
+		t.Fatalf("minimum snapshot = (%p, %v), want a deterministic selection", selected, ok)
+	}
+}
+
 func markDialersDead(set *dialer.AliveDialerSet, dialers ...*dialer.Dialer) {
 	for _, d := range dialers {
 		set.NotifyLatencyChange(d, false)

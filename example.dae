@@ -29,6 +29,13 @@ global {
     # Set non-zero value to enable pprof.
     pprof_port: 0
 
+    # Optional Prometheus endpoint. Bind it to a trusted interface and protect it
+    # with a firewall; dae does not add HTTP authentication.
+    #metrics_listen: '127.0.0.1:2024'
+
+    # Exact adaptive target labels can have high cardinality and reveal domains.
+    metrics_target_labels: false
+
     # Maximum entries for the shared TCP/UDP eBPF connection-state map.
     # Lower values reduce locked kernel memory but lower the maximum tracked concurrent flows.
     # Takes effect on fresh eBPF load or restart; same-port reload keeps the live map.
@@ -358,6 +365,29 @@ group {
         #check_tolerance: 50ms
     }
 }
+
+# Asynchronously learn which node works best for frequently visited TCP targets.
+# This section never changes the group selected by routing: an entry may only
+# recommend a currently healthy node already contained in the group of the same name.
+# See docs/en/configuration/adaptive.md for behavior and rollout guidance.
+#adaptive {
+#    my_group {
+#        # shadow records recommendations without applying them; enforce applies them.
+#        mode: shadow
+#        max_targets: 64
+#        min_connections: 20
+#        observation_window: 10m
+#        idle_ttl: 1h
+#        probe_interval: 5m
+#        probe_timeout: 5s
+#        probe_ports: 443
+#        max_concurrent_probes: 4
+#        max_probes_per_minute: 60
+#        recommendation_ttl: 15m
+#        switch_tolerance: 50ms
+#        switch_min_percent: 20
+#    }
+#}
 
 # See https://github.com/daeuniverse/dae/blob/main/docs/en/configuration/routing.md for full examples.
 routing {

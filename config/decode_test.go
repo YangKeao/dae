@@ -7,6 +7,7 @@ package config
 
 import (
 	"testing"
+	"time"
 
 	"github.com/daeuniverse/dae/pkg/config_parser"
 	"github.com/stretchr/testify/require"
@@ -90,4 +91,75 @@ func TestDecodeConfigSectionRejectsUnknownSection(t *testing.T) {
 	err := decodeConfigSection(conf, "unknown", &config_parser.Section{Name: "unknown"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unknown section")
+}
+
+func TestAdaptiveConfigDefaultsAndGroupReference(t *testing.T) {
+	sections, err := config_parser.Parse(`
+global {
+  metrics_listen: "192.168.1.106:2024"
+}
+group {
+  default {
+    policy: min_moving_avg
+  }
+}
+adaptive {
+  default {
+    mode: shadow
+  }
+}
+routing {
+  fallback: default
+}
+`)
+	require.NoError(t, err)
+
+	conf, err := New(sections)
+	require.NoError(t, err)
+	require.Equal(t, "192.168.1.106:2024", conf.Global.MetricsListen)
+	require.Len(t, conf.Adaptive, 1)
+	require.Equal(t, "default", conf.Adaptive[0].Name)
+	require.Equal(t, AdaptiveModeShadow, conf.Adaptive[0].Mode)
+	require.Equal(t, 64, conf.Adaptive[0].MaxTargets)
+	require.Equal(t, uint64(20), conf.Adaptive[0].MinConnections)
+	require.Equal(t, 10*time.Minute, conf.Adaptive[0].ObservationWindow)
+	require.Equal(t, []uint16{443}, conf.Adaptive[0].ProbePorts)
+}
+
+func TestAdaptiveConfigRejectsCrossGroupTypo(t *testing.T) {
+	sections, err := config_parser.Parse(`
+global {}
+group {
+  ai {
+    policy: min_moving_avg
+  }
+}
+adaptive {
+  default {
+    mode: enforce
+  }
+}
+routing {
+  fallback: ai
+}
+`)
+	require.NoError(t, err)
+
+	_, err = New(sections)
+	require.ErrorContains(t, err, `adaptive group "default" does not reference an existing group`)
+}
+
+func TestMetricsListenRequiresHostAndPort(t *testing.T) {
+	sections, err := config_parser.Parse(`
+global {
+  metrics_listen: "2024"
+}
+routing {
+  fallback: direct
+}
+`)
+	require.NoError(t, err)
+
+	_, err = New(sections)
+	require.ErrorContains(t, err, "invalid metrics_listen")
 }

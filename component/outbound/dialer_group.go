@@ -130,6 +130,35 @@ func (g *DialerGroup) GetSelectionPolicy() (policy consts.DialerSelectionPolicy)
 	return g.currentSelectionState().policy.Policy
 }
 
+// SnapshotDeterministicSelection returns the current fixed or latency-policy
+// selection without advancing randomness or mutating selection state. Random
+// groups intentionally have no point-in-time selected dialer.
+func (g *DialerGroup) SnapshotDeterministicSelection(networkType *dialer.NetworkType) (*dialer.Dialer, bool) {
+	if g == nil || networkType == nil {
+		return nil, false
+	}
+	state := g.currentSelectionState()
+	switch state.policy.Policy {
+	case consts.DialerSelectionPolicy_Fixed:
+		index := state.policy.FixedIndex
+		if index < 0 || index >= len(g.Dialers) {
+			return nil, false
+		}
+		return g.Dialers[index], true
+	case consts.DialerSelectionPolicy_MinLastLatency,
+		consts.DialerSelectionPolicy_MinAverage10Latencies,
+		consts.DialerSelectionPolicy_MinMovingAverageLatencies:
+		set := state.aliveDialerSets[networkType.Index()]
+		if set == nil {
+			return nil, false
+		}
+		selected, _ := set.GetMinLatency(nil)
+		return selected, selected != nil
+	default:
+		return nil, false
+	}
+}
+
 func (g *DialerGroup) MinCheckInterval() time.Duration {
 	if len(g.Dialers) == 0 {
 		return 30 * time.Second

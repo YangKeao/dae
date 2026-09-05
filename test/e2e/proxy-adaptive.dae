@@ -1,0 +1,68 @@
+global {
+    tproxy_port: 12345
+    lan_interface: LAN_INTERFACE_PLACEHOLDER
+    log_level: debug
+    auto_config_kernel_parameter: true
+    tcp_check_url: 'https://target.test,10.231.50.20'
+    check_interval: 2s
+    metrics_listen: '0.0.0.0:2024'
+    metrics_target_labels: true
+}
+
+node {
+    default_slow: 'socks5://10.231.50.11:1080'
+    default_fast: 'socks5://10.231.50.12:1080'
+    ai_slow: 'socks5://10.231.50.13:1080'
+    ai_fast: 'socks5://10.231.50.14:1080'
+}
+
+group {
+    default {
+        filter: name(default_slow, default_fast)
+        policy: fixed(0)
+    }
+    ai {
+        filter: name(ai_slow, ai_fast)
+        policy: fixed(0)
+    }
+}
+
+adaptive {
+    default {
+        mode: enforce
+        max_targets: 8
+        min_connections: 2
+        observation_window: 2m
+        idle_ttl: 5m
+        probe_interval: 30s
+        probe_timeout: 5s
+        probe_ports: 443
+        max_concurrent_probes: 4
+        max_probes_per_minute: 120
+        recommendation_ttl: 1m
+        switch_tolerance: 5ms
+        switch_min_percent: 1
+    }
+    ai {
+        mode: enforce
+        max_targets: 8
+        min_connections: 2
+        observation_window: 2m
+        idle_ttl: 5m
+        probe_interval: 30s
+        probe_timeout: 5s
+        probe_ports: 443
+        max_concurrent_probes: 4
+        max_probes_per_minute: 120
+        recommendation_ttl: 1m
+        switch_tolerance: 5ms
+        switch_min_percent: 1
+    }
+}
+
+routing {
+    l4proto(udp) -> direct
+    sip(10.231.51.10) -> default
+    sip(10.231.51.11) -> ai
+    fallback: direct
+}

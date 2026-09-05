@@ -1,0 +1,25 @@
+# syntax=docker/dockerfile:1
+
+# Build the binary first with `make dae`, then use this file when the builder
+# cannot reliably download Go modules. The runtime layout matches Dockerfile.
+FROM alpine@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+
+RUN mkdir -p /usr/local/share/dae/ /etc/dae/ \
+    && wget -O /usr/local/share/dae/geoip.dat https://github.com/v2fly/geoip/releases/latest/download/geoip.dat \
+    && wget -O /usr/local/share/dae/geosite.dat https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat
+
+ARG SOURCE_REPOSITORY="https://github.com/YangKeao/dae"
+ARG SOURCE_REVISION="unknown"
+ARG IMAGE_VERSION="unknown"
+
+LABEL org.opencontainers.image.source="${SOURCE_REPOSITORY}" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}" \
+      org.opencontainers.image.version="${IMAGE_VERSION}" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
+
+COPY dae /usr/local/bin/dae
+COPY install/empty.dae /etc/dae/config.dae
+RUN chmod 0600 /etc/dae/config.dae
+
+CMD ["dae"]
+ENTRYPOINT ["dae", "run", "-c", "/etc/dae/config.dae"]
