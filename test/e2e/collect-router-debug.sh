@@ -53,6 +53,7 @@ capture_shell() {
 {
     printf 'started_at=%s\n' "$STARTED_AT"
     printf 'duration_seconds=%s\n' "$DURATION"
+    printf 'dae_kernel_trace=%s\n' "${DAE_KERNEL_TRACE:-0}"
     printf 'dae_container=%s\n' "$DAE_CONTAINER"
     printf 'hostname=%s\n' "$(hostname)"
 } >"$OUT_DIR/manifest.txt"
@@ -86,9 +87,11 @@ if command -v tcpdump >/dev/null 2>&1; then
 fi
 
 TRACE_PID=
-timeout "$DURATION" docker exec "$DAE_CONTAINER" dae trace -4 -p tcp -P 443 --drop-only \
-    >"$OUT_DIR/dae-trace-tcp4-443.txt" 2>&1 &
-TRACE_PID=$!
+if [ "${DAE_KERNEL_TRACE:-0}" = 1 ]; then
+    timeout "$DURATION" docker exec "$DAE_CONTAINER" dae trace -4 -p tcp -P 443 --drop-only \
+        >"$OUT_DIR/dae-trace-tcp4-443.txt" 2>&1 &
+    TRACE_PID=$!
+fi
 
 printf '\nCapture is running for %s seconds. From a LAN client, run the printed curl/dig tests now.\n' "$DURATION"
 printf 'Do not test only from the router itself; LAN forwarding is the path under investigation.\n\n'
@@ -107,7 +110,7 @@ while [ "$(date +%s)" -lt "$end" ]; do
 done
 
 [ -z "$TCPDUMP_PID" ] || wait "$TCPDUMP_PID" 2>/dev/null || true
-wait "$TRACE_PID" 2>/dev/null || true
+[ -z "$TRACE_PID" ] || wait "$TRACE_PID" 2>/dev/null || true
 
 capture sockets-after ss -nputo
 capture dmesg-after dmesg --ctime
